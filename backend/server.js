@@ -349,14 +349,19 @@ app.get('/users/ticket/:ticket_code', async (req, res) => {
    ROUTE: Daftarkan Peserta Baru (oleh Admin)
    ============================================================ */
 app.post('/register', async (req, res) => {
-  const { name, username, email } = req.body;
+  const { name, username, email, ticket_type, payment_status } = req.body;
   if (!name || !username || !email) {
     return res.status(400).json({ error: 'Nama, username, dan email wajib diisi.' });
   }
+
+  const ticketType = ticket_type === 'VIP' ? 'VIP' : 'REGULAR';
+  const price = ticketType === 'VIP' ? 150000 : 0;
+  const paymentStatus = payment_status || (ticketType === 'VIP' ? 'PENDING' : 'LUNAS');
+
   try {
     const ticketCode = await generateUniqueTicketCode(name);
-    const query = `INSERT INTO users (name, username, email, ticket_code) VALUES ($1, $2, $3, $4) RETURNING *`;
-    const result = await pool.query(query, [name.trim(), username.trim().toLowerCase(), email.trim().toLowerCase(), ticketCode]);
+    const query = `INSERT INTO users (name, username, email, ticket_code, ticket_type, price, payment_status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`;
+    const result = await pool.query(query, [name.trim(), username.trim().toLowerCase(), email.trim().toLowerCase(), ticketCode, ticketType, price, paymentStatus]);
     res.status(201).json({ message: 'Pendaftaran berhasil.', user: result.rows[0] });
   } catch (err) {
     if (err.code === '23505') {
@@ -367,6 +372,7 @@ app.post('/register', async (req, res) => {
     res.status(500).json({ error: 'Terjadi kesalahan sistem saat mendaftarkan peserta.' });
   }
 });
+
 
 /* ============================================================
    ROUTE: Verifikasi Kehadiran Peserta
@@ -384,6 +390,25 @@ app.patch('/users/:id/attend', async (req, res) => {
     res.status(200).json({ message: `Kehadiran peserta "${user.name}" berhasil diverifikasi.`, user: updateResult.rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Gagal melakukan verifikasi kehadiran.' });
+  }
+});
+
+/* ============================================================
+   ROUTE: Hapus Peserta Berdasarkan ID (oleh Admin)
+   ============================================================ */
+app.delete('/users/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const checkUser = await pool.query('SELECT name FROM users WHERE id = $1', [id]);
+    if (checkUser.rowCount === 0) {
+      return res.status(404).json({ error: 'Peserta tidak ditemukan.' });
+    }
+    const name = checkUser.rows[0].name;
+    await pool.query('DELETE FROM users WHERE id = $1', [id]);
+    res.status(200).json({ message: `Peserta "${name}" berhasil dihapus dari database.` });
+  } catch (err) {
+    console.error('Error saat menghapus peserta:', err);
+    res.status(500).json({ error: 'Gagal menghapus peserta.' });
   }
 });
 

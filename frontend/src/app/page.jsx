@@ -17,16 +17,21 @@ export default function Dashboard() {
   const [isVerifying, setIsVerifying] = useState(true);
   
   // Profil admin dari Google OAuth (nama, email, foto)
+  // Profil admin dari Google OAuth (nama, email, foto)
   const [adminProfile, setAdminProfile] = useState(null);
 
   // State untuk form input pendaftaran
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [ticketType, setTicketType] = useState('REGULAR'); // 'REGULAR' | 'VIP'
+  const [paymentStatus, setPaymentStatus] = useState('LUNAS'); // 'LUNAS' | 'PENDING'
   
   // State untuk pencarian dan filter
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL', 'PRESENT', 'ABSENT'
+  const [ticketTypeFilter, setTicketTypeFilter] = useState('ALL'); // 'ALL', 'REGULAR', 'VIP'
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('ALL'); // 'ALL', 'LUNAS', 'PENDING'
   
   // State untuk notifikasi feedback pengguna
   const [successMsg, setSuccessMsg] = useState('');
@@ -83,11 +88,37 @@ export default function Dashboard() {
       setName('');
       setUsername('');
       setEmail('');
+      setTicketType('REGULAR');
+      setPaymentStatus('LUNAS');
       
       setSuccessMsg(`Pendaftaran berhasil! Kode Tiket: ${data.user.ticket_code}`);
       setErrorMsg('');
       
       setTimeout(() => setSuccessMsg(''), 8000);
+    },
+    onError: (err) => {
+      setErrorMsg(err.message);
+      setSuccessMsg('');
+    },
+  });
+
+  // 3. MUTATION: Menghapus peserta
+  const deleteMutation = useMutation({
+    mutationFn: async (id) => {
+      const res = await fetch(`http://localhost:5001/users/${id}`, {
+        method: 'DELETE',
+      });
+      const responseData = await res.json();
+      if (!res.ok) {
+        throw new Error(responseData.error || 'Gagal menghapus peserta.');
+      }
+      return responseData;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      setSuccessMsg(data.message || 'Peserta berhasil dihapus.');
+      setErrorMsg('');
+      setTimeout(() => setSuccessMsg(''), 5000);
     },
     onError: (err) => {
       setErrorMsg(err.message);
@@ -114,6 +145,8 @@ export default function Dashboard() {
       name: name.trim(),
       username: username.trim().toLowerCase().replace(/\s+/g, ''),
       email: email.trim().toLowerCase(),
+      ticket_type: ticketType,
+      payment_status: paymentStatus
     });
   };
 
@@ -129,7 +162,7 @@ export default function Dashboard() {
     if (users.length === 0) return;
 
     // Header baris pertama
-    const headers = ['Nama Lengkap', 'Username', 'Alamat Email', 'Kode Tiket', 'Status Kehadiran', 'Tanggal Terdaftar'];
+    const headers = ['Nama Lengkap', 'Username', 'Alamat Email', 'Kode Tiket', 'Jenis Tiket', 'Harga', 'Status Pembayaran', 'Status Kehadiran', 'Tanggal Terdaftar'];
     
     // Baris data peserta
     const rows = users.map(user => [
@@ -137,6 +170,9 @@ export default function Dashboard() {
       `"${user.username}"`,
       `"${user.email}"`,
       `"${user.ticket_code}"`,
+      `"${user.ticket_type}"`,
+      user.price || 0,
+      `"${user.payment_status}"`,
       user.is_attended ? 'Hadir' : 'Belum Hadir',
       `"${new Date(user.created_at).toLocaleString('id-ID')}"`
     ]);
@@ -163,16 +199,39 @@ export default function Dashboard() {
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.ticket_code.toLowerCase().includes(searchTerm.toLowerCase());
       
-    if (statusFilter === 'ALL') return matchesSearch;
-    if (statusFilter === 'PRESENT') return matchesSearch && user.is_attended;
-    if (statusFilter === 'ABSENT') return matchesSearch && !user.is_attended;
-    return matchesSearch;
+    const matchesStatus = 
+      statusFilter === 'ALL' ||
+      (statusFilter === 'PRESENT' && user.is_attended) ||
+      (statusFilter === 'ABSENT' && !user.is_attended);
+
+    const matchesTicketType = 
+      ticketTypeFilter === 'ALL' || 
+      user.ticket_type === ticketTypeFilter;
+
+    const matchesPaymentStatus = 
+      paymentStatusFilter === 'ALL' || 
+      user.payment_status === paymentStatusFilter;
+      
+    return matchesSearch && matchesStatus && matchesTicketType && matchesPaymentStatus;
   });
 
   // Kalkulasi statistik peserta
   const totalPeserta = users.length;
   const totalHadir = users.filter(u => u.is_attended).length;
   const persentaseHadir = totalPeserta > 0 ? Math.round((totalHadir / totalPeserta) * 100) : 0;
+  
+  // Fitur Statistik Lanjutan
+  const totalVIP = users.filter(u => u.ticket_type === 'VIP').length;
+  const totalRegular = users.filter(u => u.ticket_type === 'REGULAR').length;
+  const totalPendapatan = users.reduce((acc, user) => acc + (user.payment_status === 'LUNAS' ? (user.price || 0) : 0), 0);
+
+  const formatRupiah = (value) => {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0
+    }).format(value);
+  };
 
   // Tampilan transisi pemeriksaan login
   if (isVerifying) {
@@ -245,14 +304,17 @@ export default function Dashboard() {
       <main className="max-w-7xl mx-auto px-4 md:px-6 py-8 flex-1 w-full flex flex-col gap-8">
         
         {/* KARTU STATISTIK */}
-        <section className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="glass-card p-6 rounded-2xl border border-stone-200 flex flex-col justify-between hover:translate-y-[-2px] transition-transform duration-300">
             <div className="text-stone-500 text-sm font-semibold tracking-wide uppercase">Total Peserta</div>
             <div className="flex items-baseline gap-2 mt-2">
               <span className="text-4xl font-extrabold text-stone-900">{totalPeserta}</span>
               <span className="text-sm text-stone-500 font-medium">orang</span>
             </div>
-            <div className="text-xs text-stone-400 mt-2">Telah terdaftar dalam sistem</div>
+            <div className="text-xs text-stone-400 mt-2 flex justify-between w-full">
+              <span>VIP: <strong>{totalVIP}</strong></span>
+              <span>Regular: <strong>{totalRegular}</strong></span>
+            </div>
           </div>
 
           <div className="glass-card p-6 rounded-2xl border border-stone-200 flex flex-col justify-between hover:translate-y-[-2px] transition-transform duration-300">
@@ -275,6 +337,14 @@ export default function Dashboard() {
                 style={{ width: `${persentaseHadir}%` }}
               ></div>
             </div>
+          </div>
+
+          <div className="glass-card p-6 rounded-2xl border border-stone-200 flex flex-col justify-between hover:translate-y-[-2px] transition-transform duration-300 bg-gradient-to-br from-white to-teal-50/20">
+            <div className="text-stone-500 text-sm font-semibold tracking-wide uppercase">Total Pendapatan</div>
+            <div className="flex items-baseline gap-2 mt-2">
+              <span className="text-2xl font-black text-teal-700">{formatRupiah(totalPendapatan)}</span>
+            </div>
+            <div className="text-[10px] text-stone-400 mt-2">Dari penjualan tiket VIP (status LUNAS)</div>
           </div>
         </section>
 
@@ -355,6 +425,42 @@ export default function Dashboard() {
                   />
                 </div>
 
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="ticketType" className="text-sm font-semibold text-stone-700">Jenis Tiket</label>
+                    <select
+                      id="ticketType"
+                      value={ticketType}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setTicketType(val);
+                        if (val === 'REGULAR') {
+                          setPaymentStatus('LUNAS');
+                        }
+                      }}
+                      disabled={registerMutation.isPending}
+                      className="px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all bg-white disabled:bg-stone-100 text-sm font-medium cursor-pointer"
+                    >
+                      <option value="REGULAR">Regular (Gratis)</option>
+                      <option value="VIP">VIP (Rp 150.000)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="paymentStatus" className="text-sm font-semibold text-stone-700">Pembayaran</label>
+                    <select
+                      id="paymentStatus"
+                      value={paymentStatus}
+                      onChange={(e) => setPaymentStatus(e.target.value)}
+                      disabled={registerMutation.isPending || ticketType === 'REGULAR'}
+                      className="px-4 py-2.5 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition-all bg-white disabled:bg-stone-100 text-sm font-medium disabled:opacity-60 cursor-pointer"
+                    >
+                      <option value="LUNAS">Lunas</option>
+                      <option value="PENDING">Pending</option>
+                    </select>
+                  </div>
+                </div>
+
                 <button
                   type="submit"
                   disabled={registerMutation.isPending}
@@ -400,11 +506,11 @@ export default function Dashboard() {
                 )}
               </div>
 
-              {/* BAR KONTROL: PENCARIAN & FILTER STATUS */}
+              {/* BAR KONTROL: PENCARIAN & FILTER MULTI-KRITERIA */}
               {!isLoading && !isError && users.length > 0 && (
-                <div className="p-4 border-b border-stone-200 bg-stone-50/70 flex flex-col sm:flex-row gap-3">
-                  {/* Kolom Pencarian */}
-                  <div className="relative flex-1">
+                <div className="p-4 border-b border-stone-200 bg-stone-50/70 flex flex-col gap-3">
+                  {/* Baris Pertama: Pencarian */}
+                  <div className="relative w-full">
                     <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                       <svg className="h-4 w-4 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -412,33 +518,50 @@ export default function Dashboard() {
                     </span>
                     <input
                       type="text"
-                      placeholder="Cari nama, email, atau kode..."
+                      placeholder="Cari nama, email, atau kode tiket..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-9 pr-4 py-2 w-full rounded-xl border border-stone-300 bg-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      className="pl-9 pr-4 py-2 w-full rounded-xl border border-stone-300 bg-white text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-teal-500"
                     />
                   </div>
 
-                  {/* Filter Status (Grouped Buttons) */}
-                  <div className="flex gap-1 bg-stone-200/60 p-1 rounded-xl self-start sm:self-auto">
-                    <button
-                      onClick={() => setStatusFilter('ALL')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${statusFilter === 'ALL' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
-                    >
-                      Semua
-                    </button>
-                    <button
-                      onClick={() => setStatusFilter('PRESENT')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${statusFilter === 'PRESENT' ? 'bg-emerald-600 text-white shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
-                    >
-                      Hadir
-                    </button>
-                    <button
-                      onClick={() => setStatusFilter('ABSENT')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${statusFilter === 'ABSENT' ? 'bg-amber-600 text-white shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}
-                    >
-                      Belum Hadir
-                    </button>
+                  {/* Baris Kedua: Dropdown Filters */}
+                  <div className="grid grid-cols-3 gap-2 w-full">
+                    <div>
+                      <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl border border-stone-300 bg-white text-[11px] font-bold text-stone-700 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                      >
+                        <option value="ALL">Semua Kehadiran</option>
+                        <option value="PRESENT">Hadir</option>
+                        <option value="ABSENT">Belum Hadir</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <select
+                        value={ticketTypeFilter}
+                        onChange={(e) => setTicketTypeFilter(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl border border-stone-300 bg-white text-[11px] font-bold text-stone-700 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                      >
+                        <option value="ALL">Semua Tiket</option>
+                        <option value="REGULAR">Regular Only</option>
+                        <option value="VIP">VIP Only</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <select
+                        value={paymentStatusFilter}
+                        onChange={(e) => setPaymentStatusFilter(e.target.value)}
+                        className="w-full px-2.5 py-1.5 rounded-xl border border-stone-300 bg-white text-[11px] font-bold text-stone-700 focus:outline-none focus:ring-1 focus:ring-teal-500 cursor-pointer"
+                      >
+                        <option value="ALL">Semua Pembayaran</option>
+                        <option value="LUNAS">Lunas</option>
+                        <option value="PENDING">Pending</option>
+                      </select>
+                    </div>
                   </div>
                 </div>
               )}
@@ -486,7 +609,7 @@ export default function Dashboard() {
                     <thead>
                       <tr className="bg-stone-100/80 border-b border-stone-200 text-xs font-bold text-stone-600 tracking-wider">
                         <th className="py-3.5 px-6">Nama & Email</th>
-                        <th className="py-3.5 px-6">Username</th>
+                        <th className="py-3.5 px-6">Info Tiket</th>
                         <th className="py-3.5 px-6">Status Kehadiran</th>
                         <th className="py-3.5 px-6 text-right">Aksi</th>
                       </tr>
@@ -496,10 +619,20 @@ export default function Dashboard() {
                         <tr key={user.id} className="hover:bg-stone-50/50 transition-colors">
                           <td className="py-4 px-6">
                             <div className="font-bold text-stone-900">{user.name}</div>
-                            <div className="text-xs text-stone-500 mt-0.5">{user.email}</div>
+                            <div className="text-[11px] text-stone-500 mt-0.5">{user.email}</div>
                           </td>
                           <td className="py-4 px-6 text-stone-600 font-medium">
-                            @{user.username}
+                            <div className="flex flex-col gap-1">
+                              <span className="text-xs">@{user.username}</span>
+                              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${user.ticket_type === 'VIP' ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-blue-100 text-blue-800 border border-blue-200'}`}>
+                                  {user.ticket_type}
+                                </span>
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${user.payment_status === 'LUNAS' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-rose-100 text-rose-800 border border-rose-200'}`}>
+                                  {user.payment_status}
+                                </span>
+                              </div>
+                            </div>
                           </td>
                           <td className="py-4 px-6">
                             {user.is_attended ? (
@@ -514,22 +647,38 @@ export default function Dashboard() {
                               </span>
                             )}
                           </td>
-                          <td className="py-4 px-6 text-right">
-                            {!user.is_attended ? (
-                              <Link 
-                                href={`/users/${user.id}`}
-                                className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-600 hover:text-white hover:border-teal-600 text-teal-700 font-bold text-xs transition-all duration-200 shadow-sm"
+                          <td className="py-4 px-6 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-2 justify-end w-full">
+                              {!user.is_attended ? (
+                                <Link 
+                                  href={`/users/${user.id}`}
+                                  className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-600 hover:text-white hover:border-teal-600 text-teal-700 font-bold text-xs transition-all duration-200 shadow-sm"
+                                >
+                                  Verifikasi
+                                </Link>
+                              ) : (
+                                <Link 
+                                  href={`/users/${user.id}`}
+                                  className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-stone-100 border border-stone-200 hover:bg-stone-200 text-stone-600 font-bold text-xs transition-all duration-200"
+                                >
+                                  Detail
+                                </Link>
+                              )}
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Apakah Anda yakin ingin menghapus peserta "${user.name}"?`)) {
+                                    deleteMutation.mutate(user.id);
+                                  }
+                                }}
+                                disabled={deleteMutation.isPending}
+                                className="inline-flex items-center justify-center p-1.5 rounded-lg bg-rose-50 border border-rose-200 hover:bg-rose-600 hover:text-white hover:border-rose-600 text-rose-700 font-bold text-xs transition-all duration-200 shadow-sm"
+                                title="Hapus Peserta"
                               >
-                                Verifikasi Presensi
-                              </Link>
-                            ) : (
-                              <Link 
-                                href={`/users/${user.id}`}
-                                className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-stone-100 border border-stone-200 hover:bg-stone-200 text-stone-600 font-bold text-xs transition-all duration-200"
-                              >
-                                Detail Tiket
-                              </Link>
-                            )}
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
