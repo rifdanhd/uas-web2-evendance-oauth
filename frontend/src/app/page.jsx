@@ -158,7 +158,7 @@ export default function HomePage() {
             <a href="#tiket" className="hover:text-white transition-colors">Tiket</a>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/tiket/login" className="text-xs font-bold text-white/60 px-3 py-1.5 hover:text-white transition-colors">
+            <Link href="/tiket" className="text-xs font-bold text-white/60 px-3 py-1.5 hover:text-white transition-colors">
               Tiket Saya
             </Link>
             <Link href="/daftar" className="text-xs font-black px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-white transition-all shadow-lg shadow-teal-500/20">
@@ -373,7 +373,7 @@ export default function HomePage() {
           </Link>
           <div className="mt-5 text-xs text-white/25 font-medium">
             Sudah punya tiket?{' '}
-            <Link href="/tiket/login" className="text-teal-500/60 hover:text-teal-400 transition-colors">
+            <Link href="/tiket" className="text-teal-500/60 hover:text-teal-400 transition-colors">
               Lihat E-Tiket Anda →
             </Link>
           </div>
@@ -391,7 +391,7 @@ export default function HomePage() {
             &copy; {new Date().getFullYear()} Evendance — Sistem Manajemen Event & Registrasi Digital
           </p>
           <div className="flex items-center gap-4 text-xs text-white/30 font-semibold">
-            <Link href="/login" className="hover:text-white/60 transition-colors">Admin Login</Link>
+            <Link href="/tiket" className="hover:text-white/60 transition-colors">Tiket Saya</Link>
             <Link href="/scan" className="hover:text-white/60 transition-colors">Scanner QR</Link>
           </div>
         </div>

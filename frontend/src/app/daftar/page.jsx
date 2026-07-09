@@ -163,7 +163,7 @@ export default function DaftarPage() {
             <span className="hidden sm:inline text-[10px] font-bold text-stone-400 uppercase tracking-widest ml-1 border-l border-stone-200 pl-2">Ticket Store</span>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/tiket/login" className="text-xs font-bold text-teal-700 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-100 transition-all">
+            <Link href="/tiket" className="text-xs font-bold text-teal-700 px-3 py-1.5 rounded-lg bg-teal-50 border border-teal-200 hover:bg-teal-100 transition-all">
               Tiket Saya →
             </Link>
             <Link href="/login" className="text-xs font-bold text-stone-600 px-3 py-1.5 rounded-lg bg-stone-50 border border-stone-200 hover:bg-stone-100 transition-all">
