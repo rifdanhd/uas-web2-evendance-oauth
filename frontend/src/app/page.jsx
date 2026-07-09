@@ -4,397 +4,270 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 
 /**
- * Halaman Utama (Landing Page) Evendance.
- * Menampilkan informasi event, countdown timer, benefit, dan CTA pembelian tiket.
+ * Halaman Utama Evendance.
+ * Desain Google UI Aesthetic (Light Mode, Clean, Minimalis, Tanpa Emoji).
+ * Menampilkan daftar event secara dinamis dari API backend.
  */
-
-// Komponen Countdown Timer
-function CountdownTimer({ targetDate }) {
-  const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
-
-  useEffect(() => {
-    const calc = () => {
-      const diff = new Date(targetDate) - new Date();
-      if (diff <= 0) return setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
-      setTimeLeft({
-        days: Math.floor(diff / (1000 * 60 * 60 * 24)),
-        hours: Math.floor((diff / (1000 * 60 * 60)) % 24),
-        minutes: Math.floor((diff / (1000 * 60)) % 60),
-        seconds: Math.floor((diff / 1000) % 60),
-      });
-    };
-    calc();
-    const interval = setInterval(calc, 1000);
-    return () => clearInterval(interval);
-  }, [targetDate]);
-
-  const units = [
-    { label: 'Hari', value: timeLeft.days },
-    { label: 'Jam', value: timeLeft.hours },
-    { label: 'Menit', value: timeLeft.minutes },
-    { label: 'Detik', value: timeLeft.seconds },
-  ];
-
-  return (
-    <div className="flex items-center gap-3 sm:gap-4">
-      {units.map((u, i) => (
-        <div key={u.label} className="flex items-center gap-3 sm:gap-4">
-          <div className="flex flex-col items-center">
-            <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl sm:rounded-2xl px-3 sm:px-5 py-2.5 sm:py-4 min-w-[52px] sm:min-w-[72px] text-center">
-              <span className="text-2xl sm:text-4xl font-black text-white tabular-nums leading-none">
-                {String(u.value).padStart(2, '0')}
-              </span>
-            </div>
-            <span className="text-[9px] sm:text-[11px] font-bold text-white/50 uppercase tracking-widest mt-1.5">{u.label}</span>
-          </div>
-          {i < 3 && <span className="text-white/30 font-black text-xl sm:text-3xl mb-4">:</span>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Komponen tiket card
-function TicketCard({ type, price, features, isVip, ctaText }) {
-  return (
-    <div className={`relative rounded-2xl overflow-hidden border transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl flex flex-col ${isVip ? 'border-amber-400/60 bg-gradient-to-b from-amber-950/60 to-stone-900/80 shadow-xl shadow-amber-900/20' : 'border-white/10 bg-white/5 shadow-lg'}`}>
-      {isVip && (
-        <div className="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400"></div>
-      )}
-      {isVip && (
-        <div className="absolute top-3 right-3 px-2.5 py-0.5 rounded-full bg-amber-400 text-amber-950 text-[9px] font-black uppercase tracking-widest">
-          🔥 Terbatas
-        </div>
-      )}
-      <div className="p-6 flex flex-col flex-1">
-        <div className="mb-4">
-          <div className={`text-xs font-bold uppercase tracking-widest mb-1 ${isVip ? 'text-amber-400' : 'text-teal-400'}`}>{type}</div>
-          <div className={`text-3xl font-black ${isVip ? 'text-amber-300' : 'text-white'}`}>
-            {price === 0 ? 'GRATIS' : `Rp ${price.toLocaleString('id-ID')}`}
-          </div>
-          {price > 0 && <div className="text-xs text-white/40 font-medium mt-0.5">per orang</div>}
-        </div>
-
-        <div className="flex flex-col gap-2.5 flex-1 mb-6">
-          {features.map(f => (
-            <div key={f} className="flex items-start gap-2.5 text-sm">
-              <svg className={`w-4 h-4 mt-0.5 flex-shrink-0 ${isVip ? 'text-amber-400' : 'text-teal-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-              </svg>
-              <span className="text-white/70 font-medium">{f}</span>
-            </div>
-          ))}
-        </div>
-
-        <Link href="/daftar" className={`w-full py-3 rounded-xl font-bold text-sm text-center transition-all active:scale-[0.98] ${isVip ? 'bg-amber-400 hover:bg-amber-300 text-amber-950 shadow-lg shadow-amber-500/20' : 'bg-white/10 hover:bg-white/20 text-white border border-white/20'}`}>
-          {ctaText}
-        </Link>
-      </div>
-    </div>
-  );
-}
-
 export default function HomePage() {
-  const [scrolled, setScrolled] = useState(false);
-  const [statsLoaded, setStatsLoaded] = useState(false);
-  const [stats, setStats] = useState({ total: 0, vip: 0, regular: 0 });
+  const [events, setEvents] = useState([]);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(true);
+  const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+  const [nextEvent, setNextEvent] = useState(null);
 
-  const EVENT_DATE = '2026-11-15T08:00:00';
-
+  // Fetch events dari backend
   useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  useEffect(() => {
-    fetch('http://localhost:5001/users')
+    fetch('http://localhost:5001/events')
       .then(r => r.json())
       .then(data => {
-        const users = Array.isArray(data) ? data : [];
-        setStats({
-          total: users.length,
-          vip: users.filter(u => u.ticket_type === 'VIP').length,
-          regular: users.filter(u => u.ticket_type === 'REGULAR' || !u.ticket_type).length,
-        });
-        setStatsLoaded(true);
+        const list = Array.isArray(data) ? data : [];
+        setEvents(list);
+        // Cari event terdekat berikutnya
+        const now = new Date();
+        const upcoming = list
+          .filter(e => new Date(e.date) > now)
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+        if (upcoming.length > 0) setNextEvent(upcoming[0]);
       })
-      .catch(() => setStatsLoaded(true));
+      .catch(() => {})
+      .finally(() => setIsLoadingEvents(false));
   }, []);
 
-  const speakers = [
-    { name: 'Dr. Ari Wibowo', role: 'AI & Future of Work', emoji: '🧠', org: 'MIT Indonesia' },
-    { name: 'Sarah Putri', role: 'Startup Ecosystem', emoji: '🚀', org: 'Founders Club ID' },
-    { name: 'Budi Santoso', role: 'Digital Transformation', emoji: '💡', org: 'Telkom Digital' },
-    { name: 'Linda Chen', role: 'Product Design', emoji: '🎨', org: 'Google x AIGA' },
-  ];
+  // Hitung mundur ke event terdekat
+  useEffect(() => {
+    if (!nextEvent) return;
+    const target = new Date(nextEvent.date);
+    const tick = () => {
+      const diff = target - new Date();
+      if (diff <= 0) {
+        setCountdown({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+      setCountdown({
+        days: Math.floor(diff / 86400000),
+        hours: Math.floor((diff % 86400000) / 3600000),
+        minutes: Math.floor((diff % 3600000) / 60000),
+        seconds: Math.floor((diff % 60000) / 1000),
+      });
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [nextEvent]);
 
-  const agenda = [
-    { time: '08.00', title: 'Registrasi & Welcome Coffee', type: 'info' },
-    { time: '09.00', title: 'Opening Ceremony & Keynote', type: 'main' },
-    { time: '10.30', title: 'Panel Discussion: Future of Tech', type: 'main' },
-    { time: '12.00', title: 'Lunch Break (VIP Premium Lunch)', type: 'break' },
-    { time: '13.30', title: 'Workshop Paralel (4 track)', type: 'workshop' },
-    { time: '15.30', title: 'Networking Session & Expo', type: 'info' },
-    { time: '17.00', title: 'Closing & Door Prize', type: 'main' },
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    return new Date(dateStr).toLocaleDateString('id-ID', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+    });
+  };
+
+  const benefits = [
+    {
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+        </svg>
+      ),
+      color: 'bg-blue-50 text-blue-600',
+      title: 'Tiket Digital QR',
+      desc: 'Tiket digital dengan QR Code unik dikirimkan langsung ke email Anda setelah pendaftaran berhasil.',
+    },
+    {
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+      ),
+      color: 'bg-green-50 text-green-600',
+      title: 'Verifikasi Kehadiran',
+      desc: 'Sistem presensi otomatis berbasis scan QR Code. Cepat, akurat, dan bebas antrian panjang.',
+    },
+    {
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+      ),
+      color: 'bg-yellow-50 text-yellow-600',
+      title: 'Pendaftaran Cepat',
+      desc: 'Cukup satu klik masuk dengan akun Google atau isi form sederhana. Selesai dalam hitungan detik.',
+    },
+    {
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+        </svg>
+      ),
+      color: 'bg-red-50 text-red-600',
+      title: 'Komunitas Terpilih',
+      desc: 'Bergabung bersama ratusan profesional dan pelajar terbaik dalam ekosistem teknologi Indonesia.',
+    },
   ];
 
   return (
-    <div className="min-h-screen bg-stone-950 text-white" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <div className="min-h-screen bg-white text-slate-800" style={{ fontFamily: "'Inter', 'Google Sans', sans-serif" }}>
 
-      {/* ── STICKY NAVBAR ───────────────────────────────────── */}
-      <nav className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ${scrolled ? 'bg-stone-950/90 backdrop-blur-md border-b border-white/10 shadow-xl shadow-black/20' : 'bg-transparent'}`}>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+      {/* NAVIGASI */}
+      <nav className="sticky top-0 z-40 bg-white border-b border-slate-200 px-6 py-3.5 shadow-sm">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-black text-sm shadow-lg shadow-teal-500/30">E</div>
-            <span className="text-lg font-black tracking-tight">Evendance</span>
-          </div>
-          <div className="hidden md:flex items-center gap-6 text-sm font-semibold text-white/60">
-            <a href="#tentang" className="hover:text-white transition-colors">Tentang</a>
-            <a href="#speaker" className="hover:text-white transition-colors">Speaker</a>
-            <a href="#agenda" className="hover:text-white transition-colors">Agenda</a>
-            <a href="#tiket" className="hover:text-white transition-colors">Tiket</a>
+            <div className="w-8 h-8 rounded-lg bg-[#1a73e8] flex items-center justify-center text-white font-bold text-sm shadow-sm">
+              E
+            </div>
+            <span className="text-base font-semibold text-slate-900 tracking-tight">Evendance</span>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/tiket" className="text-xs font-bold text-white/60 px-3 py-1.5 hover:text-white transition-colors">
-              Tiket Saya
+            <Link href="/tiket" className="text-xs font-semibold text-slate-600 hover:text-slate-900 px-3 py-2 rounded-full hover:bg-slate-100 transition-colors">
+              Cek Tiket
             </Link>
-            <Link href="/daftar" className="text-xs font-black px-4 py-2 rounded-xl bg-teal-500 hover:bg-teal-400 text-white transition-all shadow-lg shadow-teal-500/20">
-              Daftar Sekarang
+            <Link href="/login" className="text-xs font-semibold text-white bg-[#1a73e8] hover:bg-blue-700 px-4 py-2 rounded-full transition-colors shadow-sm">
+              Masuk Admin
             </Link>
           </div>
         </div>
       </nav>
 
-      {/* ── HERO SECTION ────────────────────────────────────── */}
-      <section className="relative min-h-screen flex items-center justify-center overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-teal-950/40 via-stone-950 to-stone-950"></div>
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-teal-500/10 rounded-full blur-[120px] pointer-events-none"></div>
-        <div className="absolute top-20 left-10 w-64 h-64 bg-emerald-500/5 rounded-full blur-[80px] pointer-events-none"></div>
-        <div className="absolute top-40 right-10 w-48 h-48 bg-amber-500/5 rounded-full blur-[60px] pointer-events-none"></div>
-        <div className="absolute inset-0 opacity-[0.03]" style={{backgroundImage: 'linear-gradient(white 1px, transparent 1px), linear-gradient(90deg, white 1px, transparent 1px)', backgroundSize: '60px 60px'}}></div>
-
-        <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 text-center pt-28 pb-16">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-teal-500/30 bg-teal-500/10 text-teal-400 text-xs font-bold mb-6 backdrop-blur-sm">
-            <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse"></span>
-            Pendaftaran Resmi Dibuka
-          </div>
-
-          <h1 className="text-5xl sm:text-6xl md:text-7xl font-black leading-[1.05] tracking-tight mb-6">
-            <span className="bg-gradient-to-b from-white to-white/70 bg-clip-text text-transparent">Evendance</span>
-            <br />
-            <span className="bg-gradient-to-r from-teal-400 via-emerald-400 to-teal-400 bg-clip-text text-transparent">
-              Annual Conference
-            </span>
-          </h1>
-
-          <p className="text-white/50 text-base sm:text-lg font-medium max-w-xl mx-auto mb-8 leading-relaxed">
-            Satu hari penuh bersama para pemimpin industri, inovator, dan komunitas teknologi terbaik Indonesia.{' '}
-            <strong className="text-white/70">15 November 2026</strong> — Jakarta Convention Center.
-          </p>
-
-          <div className="flex flex-col items-center gap-3 mb-10">
-            <span className="text-xs font-bold text-white/30 uppercase tracking-widest">Mulai dalam</span>
-            <CountdownTimer targetDate={EVENT_DATE} />
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link href="/daftar" className="px-8 py-4 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-white font-black text-base shadow-xl shadow-teal-500/20 transition-all active:scale-[0.98] hover:shadow-teal-500/30 hover:shadow-2xl">
-              🎫 Dapatkan Tiket Sekarang
-            </Link>
-            <a href="#agenda" className="px-8 py-4 rounded-xl border border-white/15 hover:border-white/30 hover:bg-white/5 text-white/70 hover:text-white font-bold text-base transition-all">
-              Lihat Agenda →
-            </a>
-          </div>
+      {/* HERO SECTION */}
+      <section className="max-w-5xl mx-auto px-6 pt-16 pb-12 text-center">
+        <div className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider mb-6">
+          Platform Manajemen Event Digital
         </div>
-
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-white/20">
-          <span className="text-[10px] font-bold uppercase tracking-widest">Scroll</span>
-          <svg className="w-4 h-4 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </div>
-      </section>
-
-      {/* ── STATS BANNER ────────────────────────────────────── */}
-      <section className="bg-white/5 border-y border-white/10 backdrop-blur-sm py-6">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 grid grid-cols-2 sm:grid-cols-4 gap-6 text-center">
-          {[
-            { label: 'Peserta Terdaftar', value: statsLoaded ? stats.total : '...', suffix: '+' },
-            { label: 'Tiket VIP Tersisa', value: Math.max(0, 50 - (statsLoaded ? stats.vip : 0)), suffix: '' },
-            { label: 'Speaker Expert', value: '12', suffix: '+' },
-            { label: 'Workshop Track', value: '4', suffix: '' },
-          ].map(s => (
-            <div key={s.label} className="flex flex-col gap-1">
-              <div className="text-3xl font-black text-white">{s.value}{s.suffix}</div>
-              <div className="text-xs font-semibold text-white/40 uppercase tracking-wide">{s.label}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── TENTANG SECTION ─────────────────────────────────── */}
-      <section id="tentang" className="py-24 max-w-6xl mx-auto px-4 sm:px-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-          <div>
-            <div className="text-xs font-bold text-teal-400 uppercase tracking-widest mb-3">Tentang Event</div>
-            <h2 className="text-3xl sm:text-4xl font-black leading-tight mb-5">
-              Bertemu, Belajar, dan<br />
-              <span className="text-teal-400">Tumbuh Bersama</span>
-            </h2>
-            <p className="text-white/50 text-sm leading-relaxed mb-5">
-              Evendance Annual Conference adalah event tahunan yang mempertemukan para profesional, pelajar, dan penggiat teknologi dari seluruh Indonesia. Satu hari penuh dipenuhi sesi inspiratif, workshop hands-on, dan kesempatan networking eksklusif.
-            </p>
-            <p className="text-white/50 text-sm leading-relaxed">
-              Dengan sistem pendaftaran digital terintegrasi dan e-tiket berbasis QR Code, kami memastikan pengalaman terbaik dari proses pendaftaran hingga hari-H event.
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { emoji: '🎯', title: 'Sesi Inspiratif', desc: 'Keynote dari para pemimpin industri terkemuka' },
-              { emoji: '🛠️', title: 'Workshop', desc: '4 track paralel sesuai minat & keahlian Anda' },
-              { emoji: '🤝', title: 'Networking', desc: 'Terhubung dengan 500+ profesional dan startup' },
-              { emoji: '🎁', title: 'VIP Experience', desc: 'Merchandise pack & meet & greet speaker eksklusif' },
-            ].map(f => (
-              <div key={f.title} className="p-4 rounded-2xl bg-white/5 border border-white/10 hover:border-teal-500/30 hover:bg-teal-500/5 transition-all">
-                <div className="text-2xl mb-2">{f.emoji}</div>
-                <div className="text-sm font-bold text-white mb-1">{f.title}</div>
-                <div className="text-xs text-white/40 leading-relaxed">{f.desc}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── SPEAKER SECTION ─────────────────────────────────── */}
-      <section id="speaker" className="py-20 bg-white/[0.02] border-y border-white/5">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-12">
-            <div className="text-xs font-bold text-teal-400 uppercase tracking-widest mb-3">Featured Speakers</div>
-            <h2 className="text-3xl sm:text-4xl font-black">Belajar dari yang Terbaik</h2>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            {speakers.map(s => (
-              <div key={s.name} className="flex flex-col items-center text-center p-5 rounded-2xl bg-white/5 border border-white/10 hover:border-teal-500/30 hover:bg-white/8 transition-all group">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-teal-900 to-stone-800 border border-white/10 flex items-center justify-center text-3xl mb-3 group-hover:scale-110 transition-transform shadow-xl">
-                  {s.emoji}
-                </div>
-                <div className="text-sm font-black text-white leading-tight">{s.name}</div>
-                <div className="text-[11px] font-semibold text-teal-400 mt-0.5">{s.role}</div>
-                <div className="text-[10px] text-white/30 font-medium mt-1">{s.org}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── AGENDA SECTION ──────────────────────────────────── */}
-      <section id="agenda" className="py-24 max-w-4xl mx-auto px-4 sm:px-6">
-        <div className="text-center mb-12">
-          <div className="text-xs font-bold text-teal-400 uppercase tracking-widest mb-3">Rundown Acara</div>
-          <h2 className="text-3xl sm:text-4xl font-black">Jadwal Event</h2>
-          <p className="text-white/40 text-sm mt-2">Sabtu, 15 November 2026 · Jakarta Convention Center</p>
-        </div>
-        <div className="flex flex-col gap-0">
-          {agenda.map((item, i) => (
-            <div key={i} className="flex gap-4 group">
-              <div className="flex flex-col items-center">
-                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ring-2 ring-offset-2 ring-offset-stone-950 ${item.type === 'main' ? 'bg-teal-400 ring-teal-500/50' : item.type === 'break' ? 'bg-amber-400 ring-amber-500/50' : item.type === 'workshop' ? 'bg-purple-400 ring-purple-500/50' : 'bg-white/20 ring-white/10'}`}></div>
-                {i < agenda.length - 1 && <div className="w-px flex-1 bg-white/10 mt-1 mb-1"></div>}
-              </div>
-              <div className="flex items-start gap-4 pb-4 flex-1 group-hover:bg-white/3 transition-colors rounded-xl px-3 py-1.5 -ml-3">
-                <span className="text-xs font-black text-white/30 font-mono w-12 shrink-0 mt-0.5">{item.time}</span>
-                <div>
-                  <span className="text-sm font-bold text-white/80">{item.title}</span>
-                  {item.type === 'break' && <span className="ml-2 text-[9px] font-black text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">VIP</span>}
-                  {item.type === 'workshop' && <span className="ml-2 text-[9px] font-black text-purple-400 bg-purple-400/10 px-2 py-0.5 rounded-full">Workshop</span>}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── TIKET SECTION ───────────────────────────────────── */}
-      <section id="tiket" className="py-24 bg-white/[0.02] border-t border-white/5">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-12">
-            <div className="text-xs font-bold text-teal-400 uppercase tracking-widest mb-3">Pilihan Tiket</div>
-            <h2 className="text-3xl sm:text-4xl font-black">Pilih Tiket Anda</h2>
-            <p className="text-white/40 text-sm mt-2 max-w-md mx-auto">Tiket tersedia terbatas. Segera daftarkan diri sebelum kehabisan.</p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-2xl mx-auto">
-            <TicketCard
-              type="Regular Ticket"
-              price={0}
-              ctaText="Daftar Gratis →"
-              isVip={false}
-              features={[
-                'Akses semua sesi konferensi',
-                'Coffee break & snack',
-                'Sertifikat digital peserta',
-                'Networking session',
-                'E-tiket QR Code',
-              ]}
-            />
-            <TicketCard
-              type="VIP Ticket 👑"
-              price={150000}
-              ctaText="Beli VIP Ticket →"
-              isVip={true}
-              features={[
-                'Semua benefit Regular',
-                'Premium Lunch eksklusif',
-                'Exclusive Merchandise Pack 🎁',
-                'Kursi VIP barisan depan ⭐',
-                'Meet & Greet dengan speaker 🤝',
-              ]}
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* ── FINAL CTA ───────────────────────────────────────── */}
-      <section className="py-24 relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-teal-950/60 to-emerald-950/60"></div>
-        <div className="absolute inset-0 opacity-[0.04]" style={{backgroundImage: 'radial-gradient(white 1px, transparent 1px)', backgroundSize: '30px 30px'}}></div>
-        <div className="relative z-10 max-w-3xl mx-auto text-center px-4">
-          <h2 className="text-3xl sm:text-5xl font-black mb-4 leading-tight">
-            Jangan Lewatkan<br />
-            <span className="text-teal-400">Event of the Year</span>
-          </h2>
-          <p className="text-white/50 mb-8 text-sm sm:text-base font-medium leading-relaxed">
-            Ribuan profesional dan pelajar sudah bergabung. Sekarang giliran Anda.
-          </p>
-          <Link href="/daftar" className="inline-block px-10 py-4 rounded-2xl bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 text-white font-black text-lg shadow-2xl shadow-teal-500/20 transition-all active:scale-[0.97] hover:shadow-teal-400/30">
-            🎫 Dapatkan Tiket Sekarang
+        <h1 className="text-4xl md:text-5xl font-bold text-slate-900 leading-tight tracking-tight mb-5">
+          Kelola Event, Tiket, dan Presensi
+          <span className="block text-[#1a73e8]">dalam Satu Platform</span>
+        </h1>
+        <p className="text-base text-slate-500 max-w-2xl mx-auto leading-relaxed mb-8">
+          Evendance menyederhanakan pendaftaran peserta, penerbitan tiket digital, dan verifikasi kehadiran berbasis QR Code untuk seminar, workshop, dan konferensi.
+        </p>
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <Link href={events.length > 0 ? `/daftar?event_id=${events[0]?.id}` : '/daftar'} className="px-6 py-2.5 bg-[#1a73e8] hover:bg-blue-700 text-white font-semibold text-sm rounded-full shadow-sm transition-colors">
+            Daftar Sekarang
           </Link>
-          <div className="mt-5 text-xs text-white/25 font-medium">
-            Sudah punya tiket?{' '}
-            <Link href="/tiket" className="text-teal-500/60 hover:text-teal-400 transition-colors">
-              Lihat E-Tiket Anda →
-            </Link>
-          </div>
+          <Link href="/tiket" className="px-6 py-2.5 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-sm rounded-full border border-slate-300 shadow-sm transition-colors">
+            Cek Tiket Saya
+          </Link>
         </div>
       </section>
 
-      {/* ── FOOTER ──────────────────────────────────────────── */}
-      <footer className="border-t border-white/10 py-8">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white font-black text-xs">E</div>
-            <span className="text-sm font-black text-white/60">Evendance</span>
+      {/* COUNTDOWN SECTION (Tampil jika ada event mendatang) */}
+      {nextEvent && (
+        <section className="max-w-3xl mx-auto px-6 mb-14">
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl px-8 py-6 text-center">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Event Terdekat Berikutnya</p>
+            <h3 className="text-base font-bold text-slate-900 mb-4">{nextEvent.title}</h3>
+            <div className="flex items-center justify-center gap-4">
+              {[
+                { val: countdown.days, label: 'Hari' },
+                { val: countdown.hours, label: 'Jam' },
+                { val: countdown.minutes, label: 'Menit' },
+                { val: countdown.seconds, label: 'Detik' },
+              ].map(({ val, label }) => (
+                <div key={label} className="flex flex-col items-center gap-1">
+                  <div className="w-14 h-14 bg-white border border-slate-200 rounded-xl flex items-center justify-center shadow-sm">
+                    <span className="text-2xl font-bold text-slate-900 tabular-nums">{String(val).padStart(2, '0')}</span>
+                  </div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">{label}</span>
+                </div>
+              ))}
+            </div>
           </div>
-          <p className="text-xs text-white/20 font-medium text-center">
-            &copy; {new Date().getFullYear()} Evendance — Sistem Manajemen Event & Registrasi Digital
-          </p>
-          <div className="flex items-center gap-4 text-xs text-white/30 font-semibold">
-            <Link href="/tiket" className="hover:text-white/60 transition-colors">Tiket Saya</Link>
-            <Link href="/scan" className="hover:text-white/60 transition-colors">Scanner QR</Link>
-          </div>
+        </section>
+      )}
+
+      {/* DAFTAR EVENT */}
+      <section className="max-w-5xl mx-auto px-6 mb-16">
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-slate-900">Program Event</h2>
+          <p className="text-sm text-slate-500 mt-1">Pilih program yang ingin Anda ikuti dan daftarkan diri sekarang.</p>
         </div>
+
+        {isLoadingEvents ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="bg-slate-50 border border-slate-200 rounded-2xl p-6 animate-pulse h-52" />
+            ))}
+          </div>
+        ) : events.length === 0 ? (
+          <div className="text-center py-12 text-sm text-slate-400 font-medium">
+            Belum ada event aktif yang tersedia. Periksa kembali nanti.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {events.map((event, idx) => {
+              const colorAccents = ['border-blue-200', 'border-green-200', 'border-amber-200', 'border-red-200'];
+              const accent = colorAccents[idx % colorAccents.length];
+              return (
+                <div key={event.id} className={`bg-white border ${accent} rounded-2xl p-6 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow`}>
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-sm leading-snug">{event.title}</h3>
+                    <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed line-clamp-2">{event.description}</p>
+                  </div>
+                  <div className="flex flex-col gap-1.5 text-[11px] text-slate-500 mt-auto">
+                    <div className="flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      {formatDate(event.date)}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      {event.location}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0" /></svg>
+                      Kapasitas: {event.participant_count || 0} / {event.capacity} peserta
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <div>
+                      <div className="text-[9px] text-slate-400 font-bold uppercase">VIP</div>
+                      <div className="text-xs font-bold text-slate-700">Rp {parseInt(event.price_vip, 10).toLocaleString('id-ID')}</div>
+                    </div>
+                    <Link
+                      href={`/daftar?event_id=${event.id}`}
+                      className="px-3.5 py-1.5 bg-[#1a73e8] hover:bg-blue-700 text-white font-semibold text-[11px] rounded-full transition-colors shadow-sm"
+                    >
+                      Daftar
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* BENEFIT SECTION */}
+      <section className="max-w-5xl mx-auto px-6 mb-20">
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-slate-900">Mengapa Evendance?</h2>
+          <p className="text-sm text-slate-500 mt-1">Fitur lengkap dirancang untuk memudahkan penyelenggara dan peserta.</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {benefits.map((b, i) => (
+            <div key={i} className="bg-white border border-slate-200 rounded-2xl p-5 hover:shadow-sm transition-shadow">
+              <div className={`w-9 h-9 rounded-xl ${b.color} flex items-center justify-center mb-3`}>
+                {b.icon}
+              </div>
+              <h3 className="font-bold text-slate-900 text-sm mb-1.5">{b.title}</h3>
+              <p className="text-[11px] text-slate-500 leading-relaxed">{b.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* CTA FOOTER SECTION */}
+      <section className="bg-slate-50 border-t border-slate-200 py-12 px-6">
+        <div className="max-w-2xl mx-auto text-center">
+          <h2 className="text-2xl font-bold text-slate-900 mb-3">Siap Bergabung?</h2>
+          <p className="text-sm text-slate-500 mb-6">Daftarkan diri Anda dalam hitungan detik dan dapatkan tiket digital yang siap digunakan.</p>
+          <Link href="/daftar" className="inline-block px-7 py-3 bg-[#1a73e8] hover:bg-blue-700 text-white font-semibold text-sm rounded-full shadow-sm transition-colors">
+            Mulai Pendaftaran
+          </Link>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="py-6 border-t border-slate-200 text-center text-xs text-slate-400 font-semibold bg-white">
+        &copy; {new Date().getFullYear()} Evendance. Platform manajemen event digital terpercaya.
       </footer>
     </div>
   );

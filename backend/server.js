@@ -16,7 +16,7 @@ app.use(express.json());
 // Konfigurasi CORS agar Next.js di port 3000 dapat berinteraksi dengan backend
 app.use(cors({
   origin: 'http://localhost:3000',
-  methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
@@ -101,7 +101,8 @@ app.post('/auth/google', async (req, res) => {
    ROUTE PESERTA: Daftar Mandiri Menggunakan Akun Google
    ============================================================ */
 app.post('/register-self', async (req, res) => {
-  const { idToken } = req.body;
+  const { idToken, ticket_type } = req.body;
+  let { event_id } = req.body;
   // idToken di sini sebenarnya adalah access_token dari implicit flow
   const accessToken = idToken;
   
@@ -109,18 +110,29 @@ app.post('/register-self', async (req, res) => {
     return res.status(400).json({ error: 'Access Token Google tidak ditemukan.' });
   }
 
+  if (!event_id) {
+    const eventRes = await pool.query('SELECT id FROM events ORDER BY id ASC LIMIT 1');
+    event_id = eventRes.rows[0]?.id;
+  }
+
   try {
+    const eventCheck = await pool.query('SELECT * FROM events WHERE id = $1', [event_id]);
+    if (eventCheck.rowCount === 0) {
+      return res.status(400).json({ error: 'Event tidak ditemukan.' });
+    }
+    const targetEvent = eventCheck.rows[0];
+
     // Verifikasi identitas peserta melalui Google access token
     const payload = await verifyGoogleAccessToken(accessToken);
 
     const { name, email, sub: googleId } = payload;
     
-    // Cek apakah peserta dengan email ini sudah terdaftar sebelumnya
-    const existing = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    // Cek apakah peserta dengan email ini sudah terdaftar untuk event ini sebelumnya
+    const existing = await pool.query('SELECT * FROM users WHERE email = $1 AND event_id = $2', [email.toLowerCase(), event_id]);
     if (existing.rowCount > 0) {
       // Jika sudah terdaftar, kembalikan data tiket yang ada (bukan error)
       return res.status(200).json({
-        message: 'Anda sudah terdaftar sebelumnya. Tiket Anda ditampilkan di bawah.',
+        message: 'Anda sudah terdaftar untuk event ini. Tiket Anda ditampilkan di bawah.',
         alreadyRegistered: true,
         user: existing.rows[0],
       });
@@ -136,8 +148,8 @@ app.post('/register-self', async (req, res) => {
       username = `${rawUsername}${Math.floor(Math.random() * 900) + 100}`;
     }
 
-    const ticketType = req.body.ticket_type === 'VIP' ? 'VIP' : 'REGULAR';
-    const price = ticketType === 'VIP' ? 150000 : 0;
+    const ticketType = ticket_type === 'VIP' ? 'VIP' : 'REGULAR';
+    const price = ticketType === 'VIP' ? targetEvent.price_vip : 0;
     const paymentStatus = ticketType === 'VIP' ? 'PENDING' : 'LUNAS';
 
     // Generate kode tiket unik
@@ -145,8 +157,8 @@ app.post('/register-self', async (req, res) => {
 
     // Simpan peserta baru ke database
     const result = await pool.query(
-      `INSERT INTO users (name, username, email, ticket_code, ticket_type, price, payment_status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [name, username, email.toLowerCase(), ticketCode, ticketType, price, paymentStatus]
+      `INSERT INTO users (name, username, email, ticket_code, ticket_type, price, payment_status, event_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [name, username, email.toLowerCase(), ticketCode, ticketType, price, paymentStatus, event_id]
     );
 
     return res.status(201).json({
@@ -169,14 +181,17 @@ app.post('/register-self', async (req, res) => {
 app.get('/my-ticket/:email', async (req, res) => {
   const { email } = req.params;
   try {
-    const result = await pool.query(
-      'SELECT * FROM users WHERE email = $1',
-      [decodeURIComponent(email).toLowerCase()]
-    );
+    const result = await pool.query(`
+      SELECT u.*, e.title as event_title, e.location as event_location, e.date as event_date
+      FROM users u
+      LEFT JOIN events e ON u.event_id = e.id
+      WHERE LOWER(u.email) = $1
+      ORDER BY u.created_at DESC
+    `, [decodeURIComponent(email).toLowerCase()]);
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Tiket tidak ditemukan. Silakan daftar terlebih dahulu.' });
     }
-    return res.status(200).json(result.rows[0]);
+    return res.status(200).json(result.rows);
   } catch (err) {
     console.error('Error mengambil tiket peserta:', err);
     return res.status(500).json({ error: 'Gagal mengambil data tiket.' });
@@ -188,22 +203,40 @@ app.get('/my-ticket/:email', async (req, res) => {
    ============================================================ */
 app.post('/register-manual', async (req, res) => {
   const { name, username, email, ticket_type } = req.body;
+  let { event_id } = req.body;
   if (!name || !username || !email) {
     return res.status(400).json({ error: 'Nama, username, dan email wajib diisi.' });
   }
 
-  const ticketType = ticket_type === 'VIP' ? 'VIP' : 'REGULAR';
-  const price = ticketType === 'VIP' ? 150000 : 0;
-  const paymentStatus = ticketType === 'VIP' ? 'PENDING' : 'LUNAS';
+  if (!event_id) {
+    const eventRes = await pool.query('SELECT id FROM events ORDER BY id ASC LIMIT 1');
+    event_id = eventRes.rows[0]?.id;
+  }
 
   try {
+    const eventCheck = await pool.query('SELECT * FROM events WHERE id = $1', [event_id]);
+    if (eventCheck.rowCount === 0) {
+      return res.status(400).json({ error: 'Event tidak ditemukan.' });
+    }
+    const targetEvent = eventCheck.rows[0];
+
+    const ticketType = ticket_type === 'VIP' ? 'VIP' : 'REGULAR';
+    const price = ticketType === 'VIP' ? targetEvent.price_vip : 0;
+    const paymentStatus = ticketType === 'VIP' ? 'PENDING' : 'LUNAS';
+
+    // Cek apakah email sudah terdaftar untuk event ini
+    const existing = await pool.query('SELECT * FROM users WHERE email = $1 AND event_id = $2', [email.trim().toLowerCase(), event_id]);
+    if (existing.rowCount > 0) {
+      return res.status(400).json({ error: 'Alamat email sudah terdaftar untuk event ini.' });
+    }
+
     // Generate kode tiket unik
     const ticketCode = await generateUniqueTicketCode(name);
 
     // Simpan ke database
     const result = await pool.query(
-      `INSERT INTO users (name, username, email, ticket_code, ticket_type, price, payment_status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [name.trim(), username.trim().toLowerCase().replace(/\s+/g, ''), email.trim().toLowerCase(), ticketCode, ticketType, price, paymentStatus]
+      `INSERT INTO users (name, username, email, ticket_code, ticket_type, price, payment_status, event_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [name.trim(), username.trim().toLowerCase().replace(/\s+/g, ''), email.trim().toLowerCase(), ticketCode, ticketType, price, paymentStatus, event_id]
     );
 
     return res.status(201).json({
@@ -232,10 +265,13 @@ app.post('/tickets/login-manual', async (req, res) => {
   const cleanQuery = identifier.trim().toLowerCase();
 
   try {
-    const result = await pool.query(
-      'SELECT * FROM users WHERE LOWER(email) = $1 OR LOWER(ticket_code) = $1',
-      [cleanQuery]
-    );
+    const result = await pool.query(`
+      SELECT u.*, e.title as event_title, e.location as event_location, e.date as event_date
+      FROM users u
+      LEFT JOIN events e ON u.event_id = e.id
+      WHERE LOWER(u.email) = $1 OR LOWER(u.ticket_code) = $1
+      ORDER BY u.created_at DESC
+    `, [cleanQuery]);
 
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Tiket tidak ditemukan. Pastikan email atau kode tiket Anda benar.' });
@@ -304,8 +340,20 @@ app.post('/login', (req, res) => {
    ROUTE: Ambil Semua Peserta
    ============================================================ */
 app.get('/users', async (req, res) => {
+  const { event_id } = req.query;
   try {
-    const result = await pool.query('SELECT * FROM users ORDER BY created_at DESC');
+    let query = `
+      SELECT u.*, e.title as event_title, e.location as event_location, e.date as event_date 
+      FROM users u
+      LEFT JOIN events e ON u.event_id = e.id
+    `;
+    const params = [];
+    if (event_id) {
+      query += ` WHERE u.event_id = $1`;
+      params.push(event_id);
+    }
+    query += ` ORDER BY u.created_at DESC`;
+    const result = await pool.query(query, params);
     res.status(200).json(result.rows);
   } catch (err) {
     console.error('Error saat mengambil data peserta:', err);
@@ -319,7 +367,12 @@ app.get('/users', async (req, res) => {
 app.get('/users/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    const result = await pool.query(`
+      SELECT u.*, e.title as event_title, e.location as event_location, e.date as event_date, e.description as event_description
+      FROM users u
+      LEFT JOIN events e ON u.event_id = e.id
+      WHERE u.id = $1
+    `, [id]);
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Peserta tidak ditemukan.' });
     }
@@ -335,7 +388,12 @@ app.get('/users/:id', async (req, res) => {
 app.get('/users/ticket/:ticket_code', async (req, res) => {
   const { ticket_code } = req.params;
   try {
-    const result = await pool.query('SELECT * FROM users WHERE ticket_code = $1', [ticket_code]);
+    const result = await pool.query(`
+      SELECT u.*, e.title as event_title, e.location as event_location, e.date as event_date
+      FROM users u
+      LEFT JOIN events e ON u.event_id = e.id
+      WHERE u.ticket_code = $1
+    `, [ticket_code]);
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Tiket peserta tidak terdaftar dalam sistem.' });
     }
@@ -350,18 +408,36 @@ app.get('/users/ticket/:ticket_code', async (req, res) => {
    ============================================================ */
 app.post('/register', async (req, res) => {
   const { name, username, email, ticket_type, payment_status } = req.body;
+  let { event_id } = req.body;
   if (!name || !username || !email) {
     return res.status(400).json({ error: 'Nama, username, dan email wajib diisi.' });
   }
 
-  const ticketType = ticket_type === 'VIP' ? 'VIP' : 'REGULAR';
-  const price = ticketType === 'VIP' ? 150000 : 0;
-  const paymentStatus = payment_status || (ticketType === 'VIP' ? 'PENDING' : 'LUNAS');
+  if (!event_id) {
+    const eventRes = await pool.query('SELECT id FROM events ORDER BY id ASC LIMIT 1');
+    event_id = eventRes.rows[0]?.id;
+  }
 
   try {
+    const eventCheck = await pool.query('SELECT * FROM events WHERE id = $1', [event_id]);
+    if (eventCheck.rowCount === 0) {
+      return res.status(400).json({ error: 'Event tidak ditemukan.' });
+    }
+    const targetEvent = eventCheck.rows[0];
+
+    const ticketType = ticket_type === 'VIP' ? 'VIP' : 'REGULAR';
+    const price = ticketType === 'VIP' ? targetEvent.price_vip : 0;
+    const paymentStatus = payment_status || (ticketType === 'VIP' ? 'PENDING' : 'LUNAS');
+
+    // Cek apakah email sudah terdaftar untuk event ini
+    const existing = await pool.query('SELECT * FROM users WHERE email = $1 AND event_id = $2', [email.trim().toLowerCase(), event_id]);
+    if (existing.rowCount > 0) {
+      return res.status(400).json({ error: 'Alamat email sudah terdaftar untuk event ini.' });
+    }
+
     const ticketCode = await generateUniqueTicketCode(name);
-    const query = `INSERT INTO users (name, username, email, ticket_code, ticket_type, price, payment_status) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`;
-    const result = await pool.query(query, [name.trim(), username.trim().toLowerCase(), email.trim().toLowerCase(), ticketCode, ticketType, price, paymentStatus]);
+    const query = `INSERT INTO users (name, username, email, ticket_code, ticket_type, price, payment_status, event_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`;
+    const result = await pool.query(query, [name.trim(), username.trim().toLowerCase(), email.trim().toLowerCase(), ticketCode, ticketType, price, paymentStatus, event_id]);
     res.status(201).json({ message: 'Pendaftaran berhasil.', user: result.rows[0] });
   } catch (err) {
     if (err.code === '23505') {
@@ -373,6 +449,64 @@ app.post('/register', async (req, res) => {
   }
 });
 
+/* ============================================================
+   ROUTE: Update Data Peserta (oleh Admin)
+   ============================================================ */
+app.patch('/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, username, email, ticket_type, payment_status, event_id } = req.body;
+  try {
+    const checkUser = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    if (checkUser.rowCount === 0) {
+      return res.status(404).json({ error: 'Peserta tidak ditemukan.' });
+    }
+    const current = checkUser.rows[0];
+
+    const updatedName = name !== undefined ? name.trim() : current.name;
+    const updatedUsername = username !== undefined ? username.trim().toLowerCase().replace(/\s+/g, '') : current.username;
+    const updatedEmail = email !== undefined ? email.trim().toLowerCase() : current.email;
+    const updatedTicketType = ticket_type !== undefined ? ticket_type : current.ticket_type;
+    const updatedPaymentStatus = payment_status !== undefined ? payment_status : current.payment_status;
+    const updatedEventId = event_id !== undefined ? parseInt(event_id, 10) : current.event_id;
+
+    // Ambil harga tiket berdasarkan event_id dan ticket_type
+    let price = current.price;
+    if (updatedTicketType !== current.ticket_type || updatedEventId !== current.event_id) {
+      if (updatedTicketType === 'VIP') {
+        const eventRes = await pool.query('SELECT price_vip FROM events WHERE id = $1', [updatedEventId]);
+        price = eventRes.rows[0]?.price_vip || 150000;
+      } else {
+        price = 0;
+      }
+    }
+
+    const query = `
+      UPDATE users 
+      SET name = $1, username = $2, email = $3, ticket_type = $4, payment_status = $5, event_id = $6, price = $7
+      WHERE id = $8
+      RETURNING *
+    `;
+    const result = await pool.query(query, [
+      updatedName,
+      updatedUsername,
+      updatedEmail,
+      updatedTicketType,
+      updatedPaymentStatus,
+      updatedEventId,
+      price,
+      id
+    ]);
+
+    res.status(200).json({ message: 'Data peserta berhasil diperbarui.', user: result.rows[0] });
+  } catch (err) {
+    console.error('Error saat memperbarui data peserta:', err);
+    if (err.code === '23505') {
+      if (err.detail?.includes('username')) return res.status(400).json({ error: 'Username sudah digunakan oleh peserta lain.' });
+      if (err.detail?.includes('email')) return res.status(400).json({ error: 'Alamat email sudah terdaftar.' });
+    }
+    res.status(500).json({ error: 'Gagal memperbarui data peserta.' });
+  }
+});
 
 /* ============================================================
    ROUTE: Verifikasi Kehadiran Peserta
@@ -426,6 +560,116 @@ app.get('/api/qr/:text', (req, res) => {
   }
 });
 
+/* ============================================================
+   ROUTES EVENT (CRUD Event untuk Admin)
+   ============================================================ */
+app.get('/events', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT e.*, COALESCE(COUNT(u.id), 0) as participant_count 
+      FROM events e
+      LEFT JOIN users u ON e.id = u.event_id
+      GROUP BY e.id
+      ORDER BY e.date ASC
+    `);
+    res.status(200).json(result.rows);
+  } catch (err) {
+    console.error('Error saat mengambil data event:', err);
+    res.status(500).json({ error: 'Gagal mengambil data event dari database.' });
+  }
+});
+
+app.get('/events/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const result = await pool.query(`
+      SELECT e.*, COALESCE(COUNT(u.id), 0) as participant_count 
+      FROM events e
+      LEFT JOIN users u ON e.id = u.event_id
+      WHERE e.id = $1
+      GROUP BY e.id
+    `, [id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Event tidak ditemukan.' });
+    }
+    res.status(200).json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: 'Gagal mengambil detail event.' });
+  }
+});
+
+app.post('/events', async (req, res) => {
+  const { title, description, date, location, capacity, price_vip } = req.body;
+  if (!title || !date || !location) {
+    return res.status(400).json({ error: 'Judul, tanggal, dan lokasi event wajib diisi.' });
+  }
+  try {
+    const result = await pool.query(`
+      INSERT INTO events (title, description, date, location, capacity, price_vip)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `, [
+      title.trim(),
+      description ? description.trim() : '',
+      date,
+      location.trim(),
+      capacity ? parseInt(capacity, 10) : 100,
+      price_vip ? parseInt(price_vip, 10) : 150000
+    ]);
+    res.status(201).json({ message: 'Event berhasil dibuat.', event: result.rows[0] });
+  } catch (err) {
+    console.error('Error saat membuat event:', err);
+    res.status(500).json({ error: 'Gagal membuat event baru.' });
+  }
+});
+
+app.patch('/events/:id', async (req, res) => {
+  const { id } = req.params;
+  const { title, description, date, location, capacity, price_vip } = req.body;
+  try {
+    const checkEvent = await pool.query('SELECT * FROM events WHERE id = $1', [id]);
+    if (checkEvent.rowCount === 0) {
+      return res.status(404).json({ error: 'Event tidak ditemukan.' });
+    }
+
+    const current = checkEvent.rows[0];
+    const updatedTitle = title !== undefined ? title.trim() : current.title;
+    const updatedDesc = description !== undefined ? description.trim() : current.description;
+    const updatedDate = date !== undefined ? date : current.date;
+    const updatedLoc = location !== undefined ? location.trim() : current.location;
+    const updatedCap = capacity !== undefined ? parseInt(capacity, 10) : current.capacity;
+    const updatedPriceVip = price_vip !== undefined ? parseInt(price_vip, 10) : current.price_vip;
+
+    const result = await pool.query(`
+      UPDATE events 
+      SET title = $1, description = $2, date = $3, location = $4, capacity = $5, price_vip = $6
+      WHERE id = $7
+      RETURNING *
+    `, [updatedTitle, updatedDesc, updatedDate, updatedLoc, updatedCap, updatedPriceVip, id]);
+
+    res.status(200).json({ message: 'Event berhasil diperbarui.', event: result.rows[0] });
+  } catch (err) {
+    console.error('Error saat memperbarui event:', err);
+    res.status(500).json({ error: 'Gagal memperbarui data event.' });
+  }
+});
+
+app.delete('/events/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const checkEvent = await pool.query('SELECT title FROM events WHERE id = $1', [id]);
+    if (checkEvent.rowCount === 0) {
+      return res.status(404).json({ error: 'Event tidak ditemukan.' });
+    }
+    const title = checkEvent.rows[0].title;
+    await pool.query('DELETE FROM events WHERE id = $1', [id]);
+    res.status(200).json({ message: `Event "${title}" dan seluruh pesertanya berhasil dihapus.` });
+  } catch (err) {
+    console.error('Error saat menghapus event:', err);
+    res.status(500).json({ error: 'Gagal menghapus event.' });
+  }
+});
+
 app.get('/', (req, res) => {
   res.json({ app: 'Evendance Backend API', status: 'Running', version: '2.0' });
 });
@@ -438,6 +682,22 @@ async function initializeApp() {
     const dbTest = await pool.query('SELECT NOW()');
     console.log(`✅ Database terhubung: ${dbTest.rows[0].now}`);
 
+    // 1. Buat Tabel "events"
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS events (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(100) NOT NULL,
+        description TEXT,
+        date TIMESTAMP NOT NULL,
+        location VARCHAR(200) NOT NULL,
+        capacity INT DEFAULT 100,
+        price_vip INT DEFAULT 150000,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('✅ Verifikasi tabel "events" selesai.');
+
+    // 2. Buat Tabel "users"
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -449,6 +709,7 @@ async function initializeApp() {
         ticket_type VARCHAR(20) DEFAULT 'REGULAR',
         price INT DEFAULT 0,
         payment_status VARCHAR(20) DEFAULT 'LUNAS',
+        event_id INT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
@@ -458,21 +719,69 @@ async function initializeApp() {
       ALTER TABLE users ADD COLUMN IF NOT EXISTS ticket_type VARCHAR(20) DEFAULT 'REGULAR';
       ALTER TABLE users ADD COLUMN IF NOT EXISTS price INT DEFAULT 0;
       ALTER TABLE users ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) DEFAULT 'LUNAS';
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS event_id INT REFERENCES events(id) ON DELETE CASCADE;
     `);
     console.log('✅ Verifikasi dan migrasi tabel "users" selesai.');
 
+    // 3. Inisialisasi Dummy Events
+    const checkEventCount = await pool.query('SELECT COUNT(*) FROM events');
+    if (parseInt(checkEventCount.rows[0].count, 10) === 0) {
+      console.log('📦 Menginisialisasi 3 data dummy event...');
+      const dummyEvents = [
+        [
+          'Evendance Annual Conference 2026',
+          'Konferensi tahunan terbesar untuk para developer, innovator, dan tech enthusiast di Indonesia. Satu hari penuh sesi inspiratif, workshop hands-on, dan kesempatan networking.',
+          '2026-11-15 08:00:00',
+          'Jakarta Convention Center (JCC)',
+          500,
+          150000
+        ],
+        [
+          'Full-Stack Web Development Workshop',
+          'Workshop intensif membangun aplikasi web Next.js & Express.js. Pelajari arsitektur modern, optimasi performa, dan deployment.',
+          '2026-12-10 09:30:00',
+          'Bandung Creative Hub',
+          50,
+          200000
+        ],
+        [
+          'Seminar AI & The Future of Work',
+          'Menjelajahi peran Generative AI di dunia profesional dan bagaimana mempersiapkan karir di era kecerdasan buatan.',
+          '2027-01-18 13:00:00',
+          'Online via Google Meet',
+          1000,
+          50000
+        ]
+      ];
+      for (const [title, desc, date, loc, cap, price_vip] of dummyEvents) {
+        await pool.query(
+          'INSERT INTO events (title, description, date, location, capacity, price_vip) VALUES ($1, $2, $3, $4, $5, $6)',
+          [title, desc, date, loc, cap, price_vip]
+        );
+      }
+      console.log('✅ Data dummy event berhasil diinisialisasi.');
+    }
+
+    // Hubungkan peserta yang memiliki event_id null ke event pertama
+    await pool.query(`
+      UPDATE users SET event_id = (SELECT id FROM events ORDER BY id ASC LIMIT 1) WHERE event_id IS NULL;
+    `);
+
+    // 4. Inisialisasi Dummy Users
     const countCheck = await pool.query('SELECT COUNT(*) FROM users');
     if (parseInt(countCheck.rows[0].count, 10) === 0) {
       console.log('📦 Menginisialisasi 3 data dummy peserta...');
+      const firstEventRes = await pool.query('SELECT id FROM events ORDER BY id ASC LIMIT 1');
+      const defaultEventId = firstEventRes.rows[0]?.id;
       const dummies = [
-        ['Budi Santoso', 'budisantoso', 'budi.santoso@example.com', 'EVT-BUDIS-382', false, 'REGULAR', 0, 'LUNAS'],
-        ['Siti Aminah', 'sitiaminah', 'siti.aminah@example.com', 'EVT-SITIA-719', true, 'VIP', 150000, 'LUNAS'],
-        ['Ahmad Fauzi', 'ahmadfauzi', 'ahmad.fauzi@example.com', 'EVT-AHMAD-245', false, 'VIP', 150000, 'LUNAS'],
+        ['Budi Santoso', 'budisantoso', 'budi.santoso@example.com', 'EVT-BUDIS-382', false, 'REGULAR', 0, 'LUNAS', defaultEventId],
+        ['Siti Aminah', 'sitiaminah', 'siti.aminah@example.com', 'EVT-SITIA-719', true, 'VIP', 150000, 'LUNAS', defaultEventId],
+        ['Ahmad Fauzi', 'ahmadfauzi', 'ahmad.fauzi@example.com', 'EVT-AHMAD-245', false, 'VIP', 150000, 'LUNAS', defaultEventId],
       ];
-      for (const [name, username, email, ticket_code, is_attended, ticket_type, price, payment_status] of dummies) {
+      for (const [name, username, email, ticket_code, is_attended, ticket_type, price, payment_status, event_id] of dummies) {
         await pool.query(
-          'INSERT INTO users (name, username, email, ticket_code, is_attended, ticket_type, price, payment_status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-          [name, username, email, ticket_code, is_attended, ticket_type, price, payment_status]
+          'INSERT INTO users (name, username, email, ticket_code, is_attended, ticket_type, price, payment_status, event_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+          [name, username, email, ticket_code, is_attended, ticket_type, price, payment_status, event_id]
         );
       }
       console.log('✅ Data dummy berhasil diinisialisasi.');
