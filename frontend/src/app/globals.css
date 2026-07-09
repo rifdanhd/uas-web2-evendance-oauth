@@ -1,0 +1,117 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+:root {
+  --background: #f5f5f4; /* stone-100 */
+  --foreground: #1c1917; /* stone-900 */
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* Kustomisasi scrollbar untuk tampilan premium */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f5f5f4; /* stone-100 */
+}
+::-webkit-scrollbar-thumb {
+  background: #d6d3d1; /* stone-300 */
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a29e; /* stone-400 */
+}
+
+/* Glassmorphism utility */
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 8px 32px 0 rgba(28, 25, 23, 0.05);
+}
+
+/* ===================================================
+   ATURAN CETAK (PRINT) - Hanya tampilkan kartu tiket
+   =================================================== */
+@media print {
+  /* Sembunyikan semua elemen navigasi dan tombol */
+  .no-print,
+  header,
+  footer,
+  nav {
+    display: none !important;
+  }
+
+  /* Reset body untuk tampilan cetak bersih */
+  body {
+    background: white !important;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Pastikan kontainer kartu tiket tampil penuh */
+  .print-ticket-container {
+    box-shadow: none !important;
+    border: 1px solid #e7e5e4 !important;
+    border-radius: 16px !important;
+    max-width: 400px !important;
+    margin: 40px auto !important;
+  }
+}
+
+/* ===================================================
+   ANIMASI MIKRO TAMBAHAN
+   =================================================== */
+
+/* Efek fade-in saat halaman dimuat */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease forwards;
+}
+
+/* Efek pulse halus untuk elemen aktif */
+@keyframes softPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.animate-soft-pulse {
+  animation: softPulse 2s ease-in-out infinite;
+}
+
+/* Efek laser scanner */
+@keyframes laserScan {
+  0%   { top: 15%; }
+  50%  { top: 80%; }
+  100% { top: 15%; }
+}
+
+.scanner-laser {
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  height: 2px;
+  background: linear-gradient(to right, transparent, #2dd4bf, #14b8a6, #2dd4bf, transparent);
+  border-radius: 9999px;
+  box-shadow: 0 0 8px 2px rgba(45, 212, 191, 0.6);
+  animation: laserScan 2.5s ease-in-out infinite;
+}
