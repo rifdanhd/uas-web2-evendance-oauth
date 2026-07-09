@@ -178,6 +178,6 @@ UAS-WEB2-EVENDANCE-OAUTH/
 
 ## 🧑‍💻 Hak Cipta & Kontributor
 
-*   **Nama Mahasiswa**: [Nama Anda]
-*   **NIM**: [NIM Anda]
+*   **Nama Mahasiswa**: Muhammad Rifdan Dermawan 
+*   **NIM**: 23552011274
 *   **Mata Kuliah**: Pemrograman Web 2 / UAS
