@@ -14,7 +14,7 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="id" className="h-full">
-      <body className="bg-stone-50 text-stone-900 min-h-full font-sans antialiased flex flex-col">
+      <body className="min-h-full font-sans antialiased flex flex-col">
         {/* Membungkus aplikasi dengan React Query Provider */}
         <Providers>
           {children}
