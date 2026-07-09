@@ -19,7 +19,7 @@ export default function LoginPage() {
   useEffect(() => {
     const token = localStorage.getItem('admin_token');
     if (token) {
-      router.push('/');
+      router.push('/admin');
     }
   }, [router]);
 
@@ -69,7 +69,7 @@ export default function LoginPage() {
         }));
 
         // Alihkan ke Dashboard utama
-        router.push('/');
+        router.push('/admin');
       } catch (err) {
         setErrorMsg(err.message);
       } finally {
